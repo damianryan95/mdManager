@@ -1,16 +1,16 @@
 # Deploying MDViewer in Portainer
 
-Deployment method: **pre-built local image** (Portainer and this repo on the same host).
+Deployment method: **image pulled from GHCR**, published by CI on each release.
+See [`RELEASING.md`](./RELEASING.md) for how the image is built and versioned.
 
-## 1. Build the image (on the Portainer host, once)
+## 1. Get the image
 
-```bash
-cd "/home/damian/Development/server hosted .md file viewer"
-docker build -t mdviewer:latest .
-```
+The image is built and pushed automatically when you publish a GitHub Release:
+`ghcr.io/damianryan95/mdmanager:<version>` (and `:latest`). You don't build it by
+hand. One-off: make the GHCR package **public** (or add a GHCR registry credential
+in Portainer) so the host can pull it — see `RELEASING.md`.
 
-Rebuild with the same command whenever you change the app, then redeploy the stack
-(Portainer: **Stacks → mdviewer → Editor → Update the stack**, or **Pull and redeploy**).
+> Local dev only: `docker compose up --build` still builds from source.
 
 ## 2. Create the stack in Portainer
 
