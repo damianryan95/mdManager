@@ -1,0 +1,41 @@
+# Portainer stack for MDViewer (image pulled from GHCR)
+#
+# The image is built and published by .github/workflows/release.yml on every
+# GitHub Release. That workflow also rewrites the `image:` tag below and commits
+# it back to main, so this file always points at the latest released version.
+#
+# Deploy options in Portainer:
+#   - Git stack: point Portainer at damianryan95/mdManager + this file, enable a
+#     redeploy webhook so releases roll out automatically; or
+#   - Web editor: paste this file and redeploy after each release.
+#
+# GHCR note: if the package is private, add a GHCR registry (username + a PAT
+# with read:packages) under Portainer > Registries first.
+
+services:
+  mdviewer:
+    image: ghcr.io/damianryan95/mdmanager:latest
+    container_name: mdviewer
+    restart: unless-stopped
+    ports:
+      - "3502:3502"
+    environment:
+      - NODE_ENV=production
+      - PORT=3502
+      - DATA_DIR=/app/data
+    volumes:
+      # Config + search index persistence (named volume — survives redeploys)
+      - mdviewer-data:/app/data
+      # Host directories to browse, exposed read-only under /mnt in the web UI.
+      # Add each location via the UI after first launch (path e.g. /mnt/home).
+      - /home/damian:/mnt/home:ro
+      # - /mnt/nas:/mnt/nas:ro
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3502/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+volumes:
+  mdviewer-data:

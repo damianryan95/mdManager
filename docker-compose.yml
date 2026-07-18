@@ -1,0 +1,28 @@
+services:
+  mdviewer:
+    # Local dev builds from source and tags it with the same name CI publishes
+    # to GHCR. The Release workflow rewrites this tag on each release.
+    image: ghcr.io/damianryan95/mdmanager:latest
+    build: .
+    container_name: mdviewer
+    restart: unless-stopped
+    ports:
+      - "3502:3502"
+    volumes:
+      # Config & search index persistence
+      - ./data:/app/data
+      # Damian's home directory — browse via the web UI at /mnt/home
+      - /home/damian:/mnt/home:ro
+      # Add more mounts as needed:
+      # - /mnt/nas:/mnt/nas:ro
+    environment:
+      - NODE_ENV=production
+      - PORT=3502
+      # Local locations are exposed under /mnt inside the container.
+      # Add them via the web UI after first launch.
+    networks:
+      - mdviewer-net
+
+networks:
+  mdviewer-net:
+    driver: bridge
