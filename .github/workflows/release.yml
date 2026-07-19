@@ -22,10 +22,6 @@ concurrency:
 jobs:
   release:
     runs-on: ubuntu-latest
-    # Job-level env so the redeploy step can be conditionally skipped
-    # (secrets can't be referenced directly in step `if:` conditions).
-    env:
-      PORTAINER_WEBHOOK_URL: ${{ secrets.PORTAINER_WEBHOOK_URL }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -88,23 +84,6 @@ jobs:
             git commit -m "ci: deploy ${{ steps.meta.outputs.tag }} -> ${IMAGE} [skip ci]"
             git push origin main
           fi
-
-      - name: Trigger Portainer redeploy
-        if: ${{ env.PORTAINER_WEBHOOK_URL != '' }}
-        run: |
-          set -euo pipefail
-          echo "POSTing to Portainer redeploy webhook..."
-          # Portainer re-pulls the updated stack/image and redeploys. No body needed.
-          code=$(curl -sS -o /dev/null -w '%{http_code}' -X POST "$PORTAINER_WEBHOOK_URL" --max-time 60 --retry 2)
-          echo "Webhook responded HTTP $code"
-          case "$code" in
-            2*) echo "Portainer redeploy triggered." ;;
-            *) echo "::error::Portainer redeploy webhook failed (HTTP $code)"; exit 1 ;;
-          esac
-
-      - name: Note if redeploy webhook not configured
-        if: ${{ env.PORTAINER_WEBHOOK_URL == '' }}
-        run: echo "::notice::PORTAINER_WEBHOOK_URL secret not set — skipped auto-redeploy. Add it to enable one-click rollout."
 
       - name: Summary
         run: |
