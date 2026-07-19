@@ -34,9 +34,30 @@ You can also trigger a build manually from the **Actions** tab
 - No secrets are required — the workflow authenticates to GHCR with the built-in
   `GITHUB_TOKEN`.
 
-## Deploying the new image in Portainer
+## Auto-redeploy in Portainer (webhook)
 
-- **Git stack (recommended):** point Portainer at this repo + `portainer-stack.yml`
-  and enable the stack's **redeploy webhook**. Add a final step to the workflow
-  (a `curl` to that webhook URL, stored as a repo secret) to auto-roll-out.
-- **Manual:** in Portainer, **Pull and redeploy** the stack after each release.
+The workflow's final step POSTs to a Portainer **stack redeploy webhook** so a
+release rolls out automatically. It's optional — if the `PORTAINER_WEBHOOK_URL`
+secret isn't set, the step is skipped (the release still succeeds).
+
+**One-time setup:**
+
+1. In Portainer, create the stack as a **Git stack** pointing at
+   `damianryan95/mdManager` + `portainer-stack.yml` (Repository → set repo, ref
+   `main`, compose path `portainer-stack.yml`).
+2. On that stack, enable **Webhooks / Automatic updates** and copy the webhook
+   URL — it looks like `https://<portainer-host>/api/stacks/webhooks/<uuid>`.
+3. Store it as a repo secret so the workflow can call it:
+
+   ```bash
+   gh secret set PORTAINER_WEBHOOK_URL --repo damianryan95/mdManager
+   # paste the webhook URL when prompted
+   ```
+
+That's it — the next release will build → push to GHCR → bump the YAML tag →
+POST the webhook → Portainer re-pulls and redeploys.
+
+> Portainer must be reachable from GitHub-hosted runners. If it's only on your
+> LAN, either run a **self-hosted runner** on your network, expose the webhook
+> through a tunnel/reverse proxy, or drop the secret and **Pull and redeploy**
+> the stack manually.
