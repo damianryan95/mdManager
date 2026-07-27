@@ -117,6 +117,12 @@ body { font-family: var(--sans); background: var(--bg); color: var(--text); font
 /* ─── Layout ─── */
 #app { display: flex; flex-direction: column; height: 100vh; height: 100dvh; }
 ::selection { background: color-mix(in srgb, var(--primary) 32%, transparent); }
+mark { background: var(--primary-container); color: var(--on-primary-container); border-radius: 3px; padding: 0 2px; }
+mark.doc-hl { background: #ffd54a; color: #1a1a1a; scroll-margin-top: 80px; }
+.search-result-item mark { background: color-mix(in srgb, var(--primary) 30%, transparent); color: inherit; padding: 0 1px; }
+.search-scope { display: flex; align-items: center; gap: 6px; padding: 8px 14px; font-size: 12px; color: var(--text-muted); border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--surface-3); user-select: none; }
+.search-scope input { accent-color: var(--primary); }
+.search-scope label { cursor: pointer; }
 
 /* Topbar */
 .topbar {
@@ -774,6 +780,9 @@ body { font-family: var(--sans); background: var(--bg); color: var(--text); font
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/></svg>
         Locations
       </button>
+      <button class="btn icon-only" id="copyLinkBtn" title="Copy link to this file">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+      </button>
       <button class="btn icon-only" id="themeBtn" title="Toggle theme">
         <svg id="themeIcon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
       </button>
@@ -923,7 +932,10 @@ const state = {
   currentLocationId: null,
   currentFilePath: null,
   sidebarOpen: true,
-  theme: localStorage.getItem('theme') || 'dark',
+  // Honour the OS preference on first load; explicit toggles are persisted.
+  theme: localStorage.getItem('theme') ||
+    (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'),
+  searchScopeCurrent: false,
 };
 
 // ─── Utilities ───────────────────────────────────────────────────────────────
@@ -1159,7 +1171,7 @@ document.getElementById('collapseTreeBtn').addEventListener('click', () => {
 });
 
 // ─── File Viewing ─────────────────────────────────────────────────────────────
-async function openFile(locationId, filePath) {
+async function openFile(locationId, filePath, opts = {}) {
   // Mark active
   document.querySelectorAll('.tree-node.active').forEach(el => el.classList.remove('active'));
   const node = document.querySelector(`.tree-node[data-path="${CSS.escape(filePath)}"][data-location-id="${locationId}"]`);
@@ -1167,6 +1179,7 @@ async function openFile(locationId, filePath) {
 
   state.currentLocationId = locationId;
   state.currentFilePath = filePath;
+  if (!opts.fromHash) updateHash();
 
   if (window.matchMedia('(max-width: 768px)').matches) {
     setSidebarOpen(false);
@@ -1178,12 +1191,72 @@ async function openFile(locationId, filePath) {
 
   try {
     const { content } = await api('GET', `/files/content?locationId=${locationId}&path=${encodeURIComponent(filePath)}`);
-    renderMarkdown(content, filePath);
+    await renderMarkdown(content, filePath);
+    if (opts.q) highlightInDoc(opts.q);
   } catch (e) {
     toast(`Failed to load file: ${e.message}`, 'error');
     showWelcome();
   }
 }
+
+// Wrap query-token matches in the rendered document and scroll to the first.
+function highlightInDoc(query) {
+  const tokens = queryTokens(query);
+  if (!tokens.length) return;
+  const body = document.getElementById('markdownBody');
+  const re = new RegExp('(' + tokens.map(t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|') + ')', 'gi');
+  const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT);
+  const targets = [];
+  let n;
+  while ((n = walker.nextNode())) {
+    if (n.parentElement.closest('pre, code, a, .mermaid-wrap')) continue;
+    if (re.test(n.nodeValue)) targets.push(n);
+    re.lastIndex = 0;
+  }
+  let first = null;
+  for (const node of targets) {
+    const s = node.nodeValue;
+    const frag = document.createDocumentFragment();
+    let last = 0, m;
+    re.lastIndex = 0;
+    while ((m = re.exec(s))) {
+      frag.appendChild(document.createTextNode(s.slice(last, m.index)));
+      const mark = document.createElement('mark');
+      mark.className = 'doc-hl';
+      mark.textContent = m[0];
+      frag.appendChild(mark);
+      if (!first) first = mark;
+      last = m.index + m[0].length;
+    }
+    frag.appendChild(document.createTextNode(s.slice(last)));
+    node.parentNode.replaceChild(frag, node);
+  }
+  if (first) first.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+// ─── Deep-link routing (shareable URLs via the hash) ──────────────────────────
+function updateHash() {
+  if (!state.currentLocationId || !state.currentFilePath) return;
+  const h = `#loc=${encodeURIComponent(state.currentLocationId)}&file=${encodeURIComponent(state.currentFilePath)}`;
+  if (location.hash !== h) history.pushState(null, '', h);
+}
+function parseHash() {
+  const p = new URLSearchParams(location.hash.replace(/^#/, ''));
+  return { loc: p.get('loc'), file: p.get('file'), q: p.get('q') };
+}
+async function openFromHash() {
+  const { loc, file, q } = parseHash();
+  if (!loc || !file) return;
+  if (!state.locations.find(l => l.id === loc)) return;
+  const sel = document.getElementById('locationSelect');
+  if (sel.value !== loc) {
+    sel.value = loc;
+    state.currentLocationId = loc;
+    try { await loadTree(loc); } catch { /* ignore */ }
+  }
+  await openFile(loc, file, { q, fromHash: true });
+}
+window.addEventListener('popstate', () => { openFromHash(); });
 
 function showWelcome() {
   document.getElementById('welcome').style.display = 'flex';
@@ -1313,17 +1386,41 @@ contentScroll.addEventListener('scroll', () => {
 
 // ─── Search ───────────────────────────────────────────────────────────────────
 let searchDebounce;
+let lastQuery = '';
 const searchInput = document.getElementById('searchInput');
 const searchResults = document.getElementById('searchResults');
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+function queryTokens(q) {
+  return (q || '').toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(t => t.length >= 2);
+}
+function highlightTokens(text, tokens) {
+  let out = escapeHtml(text || '');
+  for (const t of tokens) {
+    const re = new RegExp('(' + t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'gi');
+    out = out.replace(re, '<mark>$1</mark>');
+  }
+  return out;
+}
+
+async function runSearch(q) {
+  lastQuery = q;
+  if (q.length < 2) { searchResults.classList.remove('open'); return; }
+  const scoped = state.searchScopeCurrent && state.currentLocationId;
+  let url = `/search?q=${encodeURIComponent(q)}`;
+  if (scoped) url += `&locationId=${encodeURIComponent(state.currentLocationId)}`;
+  try {
+    const results = await api('GET', url);
+    renderSearchResults(results, q);
+  } catch (e) { /* ignore transient search errors */ }
+}
 
 searchInput.addEventListener('input', () => {
   clearTimeout(searchDebounce);
   const q = searchInput.value.trim();
-  if (q.length < 2) { searchResults.classList.remove('open'); return; }
-  searchDebounce = setTimeout(async () => {
-    const results = await api('GET', `/search?q=${encodeURIComponent(q)}`);
-    renderSearchResults(results);
-  }, 250);
+  searchDebounce = setTimeout(() => runSearch(q), 250);
 });
 
 searchInput.addEventListener('keydown', e => {
@@ -1338,23 +1435,36 @@ document.addEventListener('keydown', e => {
   if ((e.ctrlKey || e.metaKey) && e.key === 'k') { e.preventDefault(); searchInput.focus(); searchInput.select(); }
 });
 
-function renderSearchResults(results) {
+function scopeHeaderHtml() {
+  const disabled = state.currentLocationId ? '' : 'disabled';
+  const checked = state.searchScopeCurrent ? 'checked' : '';
+  return `<div class="search-scope">
+    <input type="checkbox" id="searchScopeToggle" ${checked} ${disabled}
+      onchange="state.searchScopeCurrent = this.checked; runSearch(lastQuery)">
+    <label for="searchScopeToggle">Search current location only</label>
+  </div>`;
+}
+
+function renderSearchResults(results, query) {
+  const tokens = queryTokens(query);
   if (!results.length) {
-    searchResults.innerHTML = '<div style="padding:12px 14px;color:var(--text-muted);font-size:13px">No results found</div>';
+    searchResults.innerHTML = scopeHeaderHtml() +
+      '<div style="padding:12px 14px;color:var(--text-muted);font-size:13px">No results found</div>';
     searchResults.classList.add('open');
     return;
   }
-  searchResults.innerHTML = results.map(r => `
+  searchResults.innerHTML = scopeHeaderHtml() + results.map(r => `
     <div class="search-result-item" onclick="openFileFromSearch('${r.locationId}','${r.relativePath.replace(/'/g, "\\'")}')">
-      <div class="sr-title">${r.title || r.name}</div>
-      <div class="sr-meta">${r.relativePath}</div>
-      <div class="sr-excerpt">${r.excerpt || ''}</div>
+      <div class="sr-title">${highlightTokens(r.title || r.name, tokens)}</div>
+      <div class="sr-meta">${escapeHtml(r.relativePath)}</div>
+      <div class="sr-excerpt">${highlightTokens(r.snippet || r.excerpt || '', tokens)}</div>
     </div>
   `).join('');
   searchResults.classList.add('open');
 }
 
 function openFileFromSearch(locationId, filePath) {
+  const q = lastQuery;
   searchResults.classList.remove('open');
   searchInput.value = '';
   // Switch location if needed
@@ -1362,9 +1472,9 @@ function openFileFromSearch(locationId, filePath) {
   if (sel.value !== locationId) {
     sel.value = locationId;
     state.currentLocationId = locationId;
-    loadTree(locationId).then(() => openFile(locationId, filePath));
+    loadTree(locationId).then(() => openFile(locationId, filePath, { q }));
   } else {
-    openFile(locationId, filePath);
+    openFile(locationId, filePath, { q });
   }
 }
 
@@ -1417,6 +1527,35 @@ document.getElementById('themeBtn').addEventListener('click', () => {
   setTheme(state.theme === 'dark' ? 'light' : 'dark');
 });
 
+// ─── Copy link ────────────────────────────────────────────────────────────────
+document.getElementById('copyLinkBtn').addEventListener('click', () => {
+  if (!state.currentFilePath) return toast('Open a file first', 'info');
+  updateHash();
+  navigator.clipboard.writeText(location.href)
+    .then(() => toast('Link copied', 'success'))
+    .catch(() => toast('Could not copy link', 'error'));
+});
+
+// ─── Live updates (SSE) ───────────────────────────────────────────────────────
+function initLiveUpdates() {
+  if (!window.EventSource) return;
+  let es;
+  try { es = new EventSource('/api/events'); } catch { return; }
+  es.addEventListener('reindexed', async () => {
+    // Silently refresh the open document so on-disk edits appear live.
+    if (state.currentLocationId && state.currentFilePath) {
+      try {
+        const { content } = await api('GET', `/files/content?locationId=${state.currentLocationId}&path=${encodeURIComponent(state.currentFilePath)}`);
+        const scroll = document.getElementById('contentScroll').scrollTop;
+        await renderMarkdown(content, state.currentFilePath);
+        document.getElementById('contentScroll').scrollTop = scroll;
+      } catch { /* file may have been removed */ }
+    }
+    toast('Content updated', 'info');
+  });
+  // Browser auto-reconnects on error; nothing to do.
+}
+
 // ─── Modal ────────────────────────────────────────────────────────────────────
 document.getElementById('manageLocationsBtn').addEventListener('click', () => {
   renderLocationList();
@@ -1445,7 +1584,11 @@ setSidebarOpen(!mobileSidebarQuery.matches);
 setTheme(state.theme);
 mermaid.initialize({ startOnLoad: false, theme: state.theme === 'dark' ? 'dark' : 'default' });
 
-loadLocations().catch(e => toast(`Failed to load locations: ${e.message}`, 'error'));
+loadLocations()
+  .then(() => openFromHash())
+  .catch(e => toast(`Failed to load locations: ${e.message}`, 'error'));
+
+initLiveUpdates();
 </script>
 </body>
 </html>

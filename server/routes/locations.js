@@ -6,6 +6,7 @@ const { getLocations, getLocation, addLocation, removeLocation } = require('../c
 const { buildIndex } = require('../services/searchIndex');
 const smbManager = require('../services/smbManager');
 const { scanLocation } = require('../services/fileScanner');
+const { syncWatchers } = require('../services/watcher');
 
 const router = express.Router();
 
@@ -33,7 +34,12 @@ router.post('/', async (req, res) => {
   };
 
   await addLocation(location);
+  syncWatchers(); // start watching if this is a new local location
   res.status(201).json(location);
+
+  // Index the new location's existing files in the background (emits
+  // 'reindexed' so connected clients refresh without a manual scan).
+  buildIndex().catch((err) => console.warn('Index after add failed:', err.message));
 });
 
 // DELETE /api/locations/:id
@@ -41,6 +47,7 @@ router.delete('/:id', async (req, res) => {
   const location = getLocation(req.params.id);
   if (!location) return res.status(404).json({ error: 'Not found' });
   await removeLocation(req.params.id);
+  syncWatchers(); // stop watching a removed local location
   res.json({ ok: true });
 });
 

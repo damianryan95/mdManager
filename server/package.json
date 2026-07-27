@@ -8,10 +8,11 @@
     "dev": "node --watch index.js"
   },
   "dependencies": {
+    "chokidar": "^3.6.0",
+    "compression": "^1.8.1",
     "cors": "^2.8.5",
     "express": "^4.19.2",
     "lunr": "^2.3.9",
-    "uuid": "^10.0.0",
-    "chokidar": "^3.6.0"
+    "uuid": "^10.0.0"
   }
 }
