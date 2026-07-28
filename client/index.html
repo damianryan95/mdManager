@@ -11,6 +11,10 @@
 <link  rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css" id="hljs-theme">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/mermaid/10.6.1/mermaid.min.js"></script>
 
+<!-- KaTeX (LaTeX math) -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.css">
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.js"></script>
+
 <!-- Material Design typography -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -517,6 +521,38 @@ mark.doc-hl { background: #ffd54a; color: #1a1a1a; scroll-margin-top: 80px; }
 
 /* Mermaid */
 .mermaid-wrap { background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; margin: 1em 0; overflow-x: auto; display: flex; justify-content: center; }
+
+/* Frontmatter meta card */
+.doc-frontmatter { background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-md); padding: 12px 16px; margin: 0 0 22px; }
+.doc-frontmatter .fm-title { font-size: 1.3em; font-weight: 600; line-height: 1.3; }
+.doc-frontmatter .fm-desc { color: var(--text-muted); font-style: italic; margin-top: 3px; }
+.doc-frontmatter .fm-row { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; margin-top: 10px; font-size: 12px; color: var(--text-muted); }
+.doc-frontmatter .fm-tag { background: var(--secondary-container); color: var(--on-secondary-container); border-radius: var(--r-full); padding: 2px 10px; }
+
+/* Callouts (GFM alerts: > [!NOTE] etc.) */
+.markdown-body blockquote.callout {
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--cal, var(--primary));
+  background: color-mix(in srgb, var(--cal, var(--primary)) 9%, transparent);
+  border-radius: var(--r-sm);
+  padding: 10px 16px;
+  margin: 1em 0;
+  color: var(--text);
+}
+.callout > :first-child { margin-top: 0; }
+.callout > :last-child { margin-bottom: 0; }
+.callout-title { font-weight: 600; margin-bottom: 4px; color: var(--cal, var(--primary)); display: flex; align-items: center; gap: 6px; }
+.callout-note, .callout-info { --cal: var(--primary); }
+.callout-tip, .callout-hint, .callout-success { --cal: var(--green); }
+.callout-important { --cal: #b57edc; }
+.callout-warning, .callout-caution { --cal: var(--yellow); }
+.callout-danger, .callout-error, .callout-bug { --cal: var(--red); }
+
+/* KaTeX math */
+.math-display { overflow-x: auto; overflow-y: hidden; padding: 4px 0; margin: 0.5em 0; }
+.math-error { color: var(--red); font-size: 12px; font-family: var(--mono); }
+.markdown-body .katex { font-size: 1.05em; }
+.markdown-body .katex-display { margin: 0.6em 0; }
 
 /* TOC panel */
 .toc-panel {
@@ -1265,7 +1301,96 @@ function showWelcome() {
   document.getElementById('tocPanel').classList.remove('visible');
 }
 
+// ─── Rich markdown: math (KaTeX), frontmatter, callouts ───────────────────────
+function renderTex(tex, display) {
+  if (typeof katex === 'undefined') return `<code>${escapeHtml(tex)}</code>`;
+  try { return katex.renderToString(tex, { displayMode: display, throwOnError: false }); }
+  catch { return `<span class="math-error">${escapeHtml(tex)}</span>`; }
+}
+const mathExtension = {
+  extensions: [
+    {
+      name: 'blockMath', level: 'block',
+      start(src) { const i = src.indexOf('$$'); return i < 0 ? undefined : i; },
+      tokenizer(src) {
+        const m = /^\$\$([\s\S]+?)\$\$/.exec(src);
+        if (m) return { type: 'blockMath', raw: m[0], text: m[1].trim() };
+      },
+      renderer(t) { return `<div class="math-display">${renderTex(t.text, true)}</div>`; },
+    },
+    {
+      name: 'inlineMath', level: 'inline',
+      start(src) { const i = src.indexOf('$'); return i < 0 ? undefined : i; },
+      tokenizer(src) {
+        // Tight $...$: no space just inside, closing $ not followed by a digit (avoids currency)
+        const m = /^\$(?!\s)((?:\\\$|[^$\n])+?)(?<!\s)\$(?!\d)/.exec(src);
+        if (m) return { type: 'inlineMath', raw: m[0], text: m[1].trim() };
+      },
+      renderer(t) { return renderTex(t.text, false); },
+    },
+  ],
+};
+try { marked.use(mathExtension); } catch (e) { /* marked not ready */ }
+
+function stripQuotes(s) { return String(s).replace(/^["']|["']$/g, ''); }
+function parseFrontmatter(src) {
+  const meta = {};
+  let curKey = null;
+  for (const line of src.split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    const li = line.match(/^\s*-\s+(.*)$/);
+    if (li && curKey) { (meta[curKey] = meta[curKey] || []).push(stripQuotes(li[1].trim())); continue; }
+    const kv = line.match(/^([A-Za-z0-9_-]+):\s*(.*)$/);
+    if (!kv) continue;
+    curKey = kv[1];
+    const val = kv[2].trim();
+    if (val === '') { meta[curKey] = []; }
+    else if (/^\[.*\]$/.test(val)) { meta[curKey] = val.slice(1, -1).split(',').map(s => stripQuotes(s.trim())).filter(Boolean); curKey = null; }
+    else { meta[curKey] = stripQuotes(val); curKey = null; }
+  }
+  return meta;
+}
+function renderFrontmatterCard(meta) {
+  if (!meta || !Object.keys(meta).length) return '';
+  const title = meta.title;
+  const desc = meta.description || meta.desc || meta.summary;
+  const tags = Array.isArray(meta.tags) ? meta.tags : (meta.tags ? [meta.tags] : []);
+  const date = meta.date || meta.created || meta.updated;
+  const author = meta.author;
+  const row = [];
+  if (author) row.push(`<span>✍ ${escapeHtml(String(author))}</span>`);
+  if (date) row.push(`<span>📅 ${escapeHtml(String(date))}</span>`);
+  for (const t of tags) row.push(`<span class="fm-tag">${escapeHtml(String(t))}</span>`);
+  if (!title && !desc && !row.length) return '';
+  return `<div class="doc-frontmatter">${title ? `<div class="fm-title">${escapeHtml(String(title))}</div>` : ''}${desc ? `<div class="fm-desc">${escapeHtml(String(desc))}</div>` : ''}${row.length ? `<div class="fm-row">${row.join('')}</div>` : ''}</div>`;
+}
+
+const CALLOUT_LABELS = { note: 'Note', tip: 'Tip', hint: 'Hint', important: 'Important', warning: 'Warning', caution: 'Caution', info: 'Info', success: 'Success', danger: 'Danger', error: 'Error', bug: 'Bug' };
+const CALLOUT_ICONS = { note: '📝', tip: '💡', hint: '💡', important: '❗', warning: '⚠️', caution: '⚠️', info: 'ℹ️', success: '✅', danger: '🛑', error: '⛔', bug: '🐛' };
+function transformCallouts(body) {
+  body.querySelectorAll('blockquote').forEach(bq => {
+    const firstP = bq.querySelector('p');
+    if (!firstP) return;
+    const m = firstP.innerHTML.match(/^\s*\[!(\w+)\]\s*([^\n<]*)/i);
+    if (!m) return;
+    const type = m[1].toLowerCase();
+    const label = (m[2] || '').trim() || CALLOUT_LABELS[type] || (type.charAt(0).toUpperCase() + type.slice(1));
+    firstP.innerHTML = firstP.innerHTML.replace(/^\s*\[!\w+\]\s*[^\n<]*(<br\s*\/?>\s*)?/i, '');
+    if (!firstP.innerHTML.trim()) firstP.remove();
+    const titleEl = document.createElement('div');
+    titleEl.className = 'callout-title';
+    titleEl.textContent = `${CALLOUT_ICONS[type] || '📌'} ${label}`;
+    bq.classList.add('callout', 'callout-' + type);
+    bq.insertBefore(titleEl, bq.firstChild);
+  });
+}
+
 async function renderMarkdown(content, filePath) {
+  // Frontmatter (--- ... ---) → meta card, stripped before parsing
+  let fmCard = '';
+  const fm = content.match(/^﻿?---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/);
+  if (fm) { fmCard = renderFrontmatterCard(parseFrontmatter(fm[1])); content = content.slice(fm[0].length); }
+
   // Configure marked with highlight.js
   marked.setOptions({
     highlight: (code, lang) => {
@@ -1304,8 +1429,11 @@ async function renderMarkdown(content, filePath) {
   html = html.replace(/<pre><code/g, '<pre><button class="copy-btn" onclick="copyCode(this)">Copy</button><code');
 
   const body = document.getElementById('markdownBody');
-  body.innerHTML = html;
+  body.innerHTML = fmCard + html;
   body.style.display = 'block';
+
+  // Transform GFM alert blockquotes (> [!NOTE] …) into styled callouts
+  transformCallouts(body);
 
   // Render mermaid placeholders
   for (const { id, diagram } of mermaidBlocks) {

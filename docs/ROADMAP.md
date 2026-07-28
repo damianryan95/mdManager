@@ -107,9 +107,13 @@ Priorities: **P0** = high value / low effort (do first), **P1** = strategic,
   works immediately, before the background rebuild (was optimisation item §5.6).
 
 ### Phase 1 — Rich markdown (the headline gap)
-- **P1 · M — Frontmatter + math + footnotes + GFM alerts/callouts.** Parse YAML
-  frontmatter (show title/tags/date), add **KaTeX** for `$…$`/`$$…$$`, footnotes,
-  and `> [!NOTE]`-style callouts via marked extensions.
+- 🔶 **Frontmatter + math + GFM callouts + footnotes.**
+  - ✅ **Frontmatter** — YAML parsed into a meta card (title/description/tags/date/author);
+    server also prefers the frontmatter `title` and strips it from excerpts.
+  - ✅ **Math** — **KaTeX** via a self-contained marked extension for `$…$`/`$$…$$`
+    (code-span/fence safe, currency-tolerant).
+  - ✅ **Callouts** — `> [!NOTE|TIP|WARNING|…]` blockquotes styled as callouts.
+  - ⬜ **Footnotes** — still TODO (next slice, with wikilinks).
 - **P1 · M — Wikilinks + relative links + local images.** Resolve `[[Note]]` and
   relative `./doc.md` links to in-app navigation; serve images referenced relative
   to the current file through a guarded `/api/files/raw` endpoint.

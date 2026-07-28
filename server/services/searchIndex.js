@@ -18,6 +18,7 @@ let _docStore = {};       // id → { locationId, relativePath, name, title, exc
  */
 function stripMarkdown(content) {
   return content
+    .replace(/^﻿?---[ \t]*\r?\n[\s\S]*?\r?\n---[ \t]*(?:\r?\n|$)/, '')
     .replace(/^#{1,6}\s+/gm, '')
     .replace(/```[\s\S]*?```/g, '')
     .replace(/!\[.*?\]\(.*?\)/g, '')
@@ -31,6 +32,11 @@ function stripMarkdown(content) {
  * Extract the title: first # heading, or filename.
  */
 function extractTitle(content, filename) {
+  const fm = content.match(/^﻿?---[ \t]*\r?\n([\s\S]*?)\r?\n---/);
+  if (fm) {
+    const t = fm[1].match(/^title:\s*(.+)$/m);
+    if (t) return t[1].trim().replace(/^["']|["']$/g, '');
+  }
   const match = content.match(/^#{1,3}\s+(.+)$/m);
   return match ? match[1].trim() : filename.replace(/\.md$/i, '');
 }
