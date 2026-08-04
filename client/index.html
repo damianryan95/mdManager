@@ -996,6 +996,30 @@ function toast(msg, type = 'info') {
   setTimeout(() => el.remove(), 3500);
 }
 
+// Copy text robustly. The async Clipboard API only works in a secure context
+// (HTTPS or localhost); over plain http on a LAN (e.g. 192.168.x.x) it's
+// undefined, so fall back to a hidden-textarea + execCommand('copy').
+async function copyText(text) {
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch { /* fall through to legacy path */ }
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.cssText = 'position:fixed;top:-1000px;left:0;opacity:0';
+    document.body.appendChild(ta);
+    ta.select();
+    ta.setSelectionRange(0, ta.value.length);
+    const ok = document.execCommand('copy');
+    document.body.removeChild(ta);
+    return ok;
+  } catch { return false; }
+}
+
 function setTheme(t) {
   state.theme = t;
   document.documentElement.setAttribute('data-theme', t);
@@ -1494,8 +1518,8 @@ function scrollToHeading(id, e) {
 
 function copyCode(btn) {
   const code = btn.nextElementSibling?.textContent || '';
-  navigator.clipboard.writeText(code).then(() => {
-    btn.textContent = 'Copied!';
+  copyText(code).then(ok => {
+    btn.textContent = ok ? 'Copied!' : 'Failed';
     setTimeout(() => btn.textContent = 'Copy', 1500);
   });
 }
@@ -1656,12 +1680,11 @@ document.getElementById('themeBtn').addEventListener('click', () => {
 });
 
 // ─── Copy link ────────────────────────────────────────────────────────────────
-document.getElementById('copyLinkBtn').addEventListener('click', () => {
+document.getElementById('copyLinkBtn').addEventListener('click', async () => {
   if (!state.currentFilePath) return toast('Open a file first', 'info');
   updateHash();
-  navigator.clipboard.writeText(location.href)
-    .then(() => toast('Link copied', 'success'))
-    .catch(() => toast('Could not copy link', 'error'));
+  const ok = await copyText(location.href);
+  toast(ok ? 'Link copied' : 'Could not copy link', ok ? 'success' : 'error');
 });
 
 // ─── Live updates (SSE) ───────────────────────────────────────────────────────
