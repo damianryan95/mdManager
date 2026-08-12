@@ -93,6 +93,24 @@ async function readFile(location, filePath) {
 }
 
 /**
+ * Read a file's raw bytes (for images/PDF/etc.) from an SMB share.
+ */
+async function readFileRaw(location, filePath) {
+  const tmpFile = path.join(
+    os.tmpdir(),
+    `mdv_${Date.now()}_${Math.random().toString(36).slice(2)}`
+  );
+  try {
+    const escapedRemote = filePath.replace(/"/g, '\\"').replace(/\//g, '\\');
+    const escapedLocal = tmpFile.replace(/"/g, '\\"');
+    await smbCommand(location, `get "${escapedRemote}" "${escapedLocal}"`);
+    return await fs.readFile(tmpFile); // Buffer
+  } finally {
+    await fs.unlink(tmpFile).catch(() => {});
+  }
+}
+
+/**
  * Test connectivity to an SMB share. Returns true on success.
  */
 async function testConnection(location) {
@@ -104,4 +122,4 @@ async function testConnection(location) {
   }
 }
 
-module.exports = { listDirectory, readFile, testConnection };
+module.exports = { listDirectory, readFile, readFileRaw, testConnection };

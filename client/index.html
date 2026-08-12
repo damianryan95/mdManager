@@ -554,6 +554,20 @@ mark.doc-hl { background: #ffd54a; color: #1a1a1a; scroll-margin-top: 80px; }
 .markdown-body .katex { font-size: 1.05em; }
 .markdown-body .katex-display { margin: 0.6em 0; }
 
+/* Wikilinks */
+.markdown-body a.wikilink { color: var(--primary); text-decoration: none; border-bottom: 1px dashed color-mix(in srgb, var(--primary) 50%, transparent); }
+.markdown-body a.wikilink:hover { border-bottom-style: solid; }
+.markdown-body a.wikilink.broken { color: var(--text-muted); border-bottom-color: var(--text-muted); }
+
+/* Footnotes */
+.markdown-body sup.fn-ref { font-size: 0.72em; line-height: 0; }
+.markdown-body sup.fn-ref a { text-decoration: none; padding: 0 1px; }
+.markdown-body .footnotes { font-size: 0.9em; color: var(--text-muted); margin-top: 2em; }
+.markdown-body .footnotes ol { margin: 0.5em 0 0 1.4em; }
+.markdown-body .footnotes li { margin-bottom: 4px; scroll-margin-top: 80px; }
+.markdown-body .footnotes li:target { background: color-mix(in srgb, var(--primary) 12%, transparent); border-radius: 4px; }
+.markdown-body .fn-back { text-decoration: none; margin-left: 6px; }
+
 /* TOC panel */
 .toc-panel {
   width: var(--toc-w);
@@ -1354,7 +1368,18 @@ const mathExtension = {
     },
   ],
 };
-try { marked.use(mathExtension); } catch (e) { /* marked not ready */ }
+const wikiExtension = {
+  extensions: [{
+    name: 'wikilink', level: 'inline',
+    start(src) { const i = src.indexOf('[['); return i < 0 ? undefined : i; },
+    tokenizer(src) {
+      const m = /^\[\[([^\]|\n]+?)(?:\|([^\]\n]+?))?\]\]/.exec(src);
+      if (m) return { type: 'wikilink', raw: m[0], target: m[1].trim(), alias: (m[2] || m[1]).trim() };
+    },
+    renderer(t) { return `<a href="#" class="wikilink" data-target="${escapeHtml(t.target)}">${escapeHtml(t.alias)}</a>`; },
+  }],
+};
+try { marked.use(mathExtension); marked.use(wikiExtension); } catch (e) { /* marked not ready */ }
 
 function stripQuotes(s) { return String(s).replace(/^["']|["']$/g, ''); }
 function parseFrontmatter(src) {
@@ -1409,11 +1434,78 @@ function transformCallouts(body) {
   });
 }
 
+// Resolve a path relative to the current file's directory (handles ./ and ../)
+function resolveRelative(baseFile, rel) {
+  try { rel = decodeURI(rel); } catch { /* keep as-is */ }
+  if (rel.startsWith('/')) return rel.replace(/^\/+/, '');
+  const parts = baseFile.includes('/') ? baseFile.slice(0, baseFile.lastIndexOf('/')).split('/') : [];
+  for (const seg of rel.split('/')) {
+    if (seg === '' || seg === '.') continue;
+    if (seg === '..') parts.pop();
+    else parts.push(seg);
+  }
+  return parts.join('/');
+}
+
+// Point relative <img> sources at the guarded raw endpoint for this location
+function rewriteRelativeImages(body) {
+  if (!state.currentLocationId || !state.currentFilePath) return;
+  body.querySelectorAll('img').forEach(img => {
+    const src = img.getAttribute('src') || '';
+    if (!src || /^([a-z]+:)?\/\//i.test(src) || src.startsWith('data:') || src.startsWith('/api/')) return;
+    const resolved = resolveRelative(state.currentFilePath, src.split('#')[0].split('?')[0]);
+    img.src = `/api/files/raw?locationId=${encodeURIComponent(state.currentLocationId)}&path=${encodeURIComponent(resolved)}`;
+    img.loading = 'lazy';
+  });
+}
+
+// Footnotes: extract [^id]: definitions, wire [^id] refs, render the list
+function extractFootnotes(src) {
+  const defs = {};
+  src = src.replace(/^[ ]{0,3}\[\^([^\]\s]+)\]:[ ]*(.*)$/gm, (_, id, text) => { defs[id] = text.trim(); return ''; });
+  return { src, defs };
+}
+function wireFootnoteRefs(src, defs, order) {
+  return src.replace(/\[\^([^\]\s]+)\](?!:)/g, (m, id) => {
+    if (!(id in defs)) return m; // only convert refs with a matching definition (code-safe)
+    if (!order.includes(id)) order.push(id);
+    return `<sup class="fn-ref" id="fnref-${id}"><a href="#fn-${id}">${order.indexOf(id) + 1}</a></sup>`;
+  });
+}
+function footnotesHtml(order, defs) {
+  if (!order.length) return '';
+  const items = order.map(id =>
+    `<li id="fn-${id}">${marked.parseInline(defs[id] || '')} <a href="#fnref-${id}" class="fn-back" title="Back to reference">↩</a></li>`
+  ).join('');
+  return `<hr><section class="footnotes"><ol>${items}</ol></section>`;
+}
+
+// Resolve a [[wikilink]] to a file in the current location and open it
+async function openWikilink(target) {
+  const norm = s => (s || '').toLowerCase().replace(/\.md$/i, '').trim();
+  const q = norm(target);
+  try {
+    const loc = state.currentLocationId;
+    const results = await api('GET', `/search?q=${encodeURIComponent(q)}${loc ? `&locationId=${loc}` : ''}`);
+    const hit = results.find(r => norm(r.name) === q || norm(r.title) === q)
+      || results.find(r => norm(r.relativePath) === q)
+      || results[0];
+    if (hit) openFile(hit.locationId, hit.relativePath, { q });
+    else toast(`No note found for "${target}"`, 'error');
+  } catch (e) { toast(`Could not open "${target}": ${e.message}`, 'error'); }
+}
+
 async function renderMarkdown(content, filePath) {
   // Frontmatter (--- ... ---) → meta card, stripped before parsing
   let fmCard = '';
   const fm = content.match(/^﻿?---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/);
   if (fm) { fmCard = renderFrontmatterCard(parseFrontmatter(fm[1])); content = content.slice(fm[0].length); }
+
+  // Footnotes: pull definitions out, wire references, append the list at the end
+  const fn = extractFootnotes(content);
+  content = fn.src;
+  const fnOrder = [];
+  content = wireFootnoteRefs(content, fn.defs, fnOrder);
 
   // Configure marked with highlight.js
   marked.setOptions({
@@ -1453,11 +1545,14 @@ async function renderMarkdown(content, filePath) {
   html = html.replace(/<pre><code/g, '<pre><button class="copy-btn" onclick="copyCode(this)">Copy</button><code');
 
   const body = document.getElementById('markdownBody');
-  body.innerHTML = fmCard + html;
+  body.innerHTML = fmCard + html + footnotesHtml(fnOrder, fn.defs);
   body.style.display = 'block';
 
   // Transform GFM alert blockquotes (> [!NOTE] …) into styled callouts
   transformCallouts(body);
+
+  // Point relative image sources at the guarded raw endpoint
+  rewriteRelativeImages(body);
 
   // Render mermaid placeholders
   for (const { id, diagram } of mermaidBlocks) {
@@ -1523,6 +1618,27 @@ function copyCode(btn) {
     setTimeout(() => btn.textContent = 'Copy', 1500);
   });
 }
+
+// In-document links: wikilinks + relative .md / asset links open in-app
+document.getElementById('markdownBody').addEventListener('click', (e) => {
+  const wl = e.target.closest('a.wikilink');
+  if (wl) { e.preventDefault(); openWikilink(wl.dataset.target); return; }
+  const a = e.target.closest('a');
+  if (!a) return;
+  const href = a.getAttribute('href') || '';
+  // External links, in-page anchors, mailto, data URIs → default behavior
+  if (!href || /^([a-z]+:)?\/\//i.test(href) || href.startsWith('#') || href.startsWith('mailto:') || href.startsWith('data:')) return;
+  if (!state.currentLocationId || !state.currentFilePath) return;
+  e.preventDefault();
+  const [pathPart, anchor] = href.split('#');
+  const resolved = resolveRelative(state.currentFilePath, pathPart);
+  if (/\.md$/i.test(resolved) || !/\.[a-z0-9]+$/i.test(resolved)) {
+    openFile(state.currentLocationId, resolved);
+    if (anchor) setTimeout(() => document.getElementById(anchor)?.scrollIntoView({ behavior: 'smooth' }), 300);
+  } else {
+    window.open(`/api/files/raw?locationId=${encodeURIComponent(state.currentLocationId)}&path=${encodeURIComponent(resolved)}`, '_blank');
+  }
+});
 
 // TOC active tracking
 const contentScroll = document.getElementById('contentScroll');

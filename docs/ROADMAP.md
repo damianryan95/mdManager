@@ -107,16 +107,17 @@ Priorities: **P0** = high value / low effort (do first), **P1** = strategic,
   works immediately, before the background rebuild (was optimisation item §5.6).
 
 ### Phase 1 — Rich markdown (the headline gap)
-- 🔶 **Frontmatter + math + GFM callouts + footnotes.**
+- ✅ **Frontmatter + math + GFM callouts + footnotes.**
   - ✅ **Frontmatter** — YAML parsed into a meta card (title/description/tags/date/author);
     server also prefers the frontmatter `title` and strips it from excerpts.
   - ✅ **Math** — **KaTeX** via a self-contained marked extension for `$…$`/`$$…$$`
     (code-span/fence safe, currency-tolerant).
   - ✅ **Callouts** — `> [!NOTE|TIP|WARNING|…]` blockquotes styled as callouts.
-  - ⬜ **Footnotes** — still TODO (next slice, with wikilinks).
-- **P1 · M — Wikilinks + relative links + local images.** Resolve `[[Note]]` and
-  relative `./doc.md` links to in-app navigation; serve images referenced relative
-  to the current file through a guarded `/api/files/raw` endpoint.
+  - ✅ **Footnotes** — `[^id]` refs + `[^id]:` definitions, two-way links, code-safe.
+- ✅ **Wikilinks + relative links + local images.** `[[Note]]`/`[[Note|alias]]`
+  resolve (by name, within the location) to in-app navigation; relative `./doc.md`
+  links open in-app; relative images/assets are served through a guarded
+  `/api/files/raw` endpoint (path-traversal blocked, lazy-loaded).
 - **P1 · L — Backlinks + optional graph.** Build a link graph during indexing;
   show a "Linked mentions" panel and (stretch) a lightweight graph view. This is
   the feature that makes Obsidian/Quartz refugees feel at home.

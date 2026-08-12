@@ -164,5 +164,27 @@ To see **live reload**: with this file open, edit `demo/feature-tour.md` on disk
 - Toggle the **theme** button — the whole UI, code theme, and diagrams switch between
   the Material 3 light and dark schemes.
 
+---
+
+## 9. Wikilinks, links, footnotes & images
+
+**Wikilinks** resolve by note name within this location — click
+[[extras]] to jump to the extras page, or use an alias like
+[[extras|the extras page]].
+
+**Relative links** open in-app too: [open extras directly](guide/extras.md).
+
+**Footnotes** render at the bottom and link both ways. Here's a claim with a
+footnote,[^demo] and another one.[^more]
+
+**Local images** next to the document are served through the guarded raw endpoint:
+
+![MDViewer logo](assets/logo.svg)
+
+[^demo]: This is a footnote definition — click the ↩ to jump back to the reference.
+[^more]: Footnotes are numbered in order of first appearance.
+
+---
+
 That's the tour. See `guide/extras.md` in the sidebar for a second file (handy for
 testing the tree, cross-file search, and navigation).
